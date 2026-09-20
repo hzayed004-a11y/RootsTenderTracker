@@ -120,6 +120,80 @@ def fetch_rows(db, where: str = "", params: tuple = ()) -> list[dict]:
     return [dict(r) for r in db.query(sql, params)]
 
 
+def export_rows_to_bytes(rows: list[dict], template: str | Path,
+                         area_labels: dict | None = None) -> bytes:
+    """Write an already-selected set of rows into a copy of the template.
+
+    The web UI filters rows in Python so that the screen and the download
+    cannot drift apart; this is the same writer as export_tracker, taking the
+    rows it is given instead of querying for them.
+    """
+    import io
+    buf = io.BytesIO(Path(template).read_bytes())
+    layout = detect_layout(template)
+    area_labels = {("ON" if k is True else "NO" if k is False else str(k)): v
+                   for k, v in (area_labels or {}).items()}
+
+    wb = openpyxl.load_workbook(buf)
+    ws = wb[layout["sheet"]]
+    start, cols = layout["data_starts_row"], layout["columns"]
+    stats = {"rows": 0, "moh_matched": 0, "roots_matched": 0,
+             "unmatched": 0, "fuzzy": 0}
+
+    for offset, rec in enumerate(rows):
+        r = start + offset
+        area = (rec.get("_area")
+                or area_labels.get(rec.get("search_code"))
+                or rec.get("item_area") or rec.get("tender_area") or NA)
+        values = _row_values(rec, area)
+        method = rec.get("ref_match_method")
+        matched_moh = values["registered_products"] != NA
+        matched_roots = values["roots_product"] != NA
+        stats["rows"] += 1
+        stats["moh_matched"] += int(matched_moh)
+        stats["roots_matched"] += int(matched_roots)
+        if not matched_moh and not matched_roots:
+            stats["unmatched"] += 1
+        if method in ("skeleton", "brand"):
+            stats["fuzzy"] += 1
+        _write_row(ws, cols, r, values, matched_moh, matched_roots, method)
+
+    _write_legend(ws, layout, len(rows), stats)
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+def _row_values(rec: dict, area: str) -> dict:
+    return {
+        "tender_number": rec.get("tender_number") or NA,
+        "submission_deadline": rec.get("submission_deadline") or NA,
+        "product_name": rec.get("product_name") or NA,
+        "therapeutic_area": area,
+        "unit": rec.get("unit") or NA,
+        "quantity": rec.get("quantity"),
+        "registered_products": _join(rec.get("registered_products")),
+        "registered_companies": _join(rec.get("registered_companies")),
+        "roots_product": _join(rec.get("roots_product")),
+        "roots_principal": _join(rec.get("roots_principal")),
+        "roots_status": _join(rec.get("roots_status")),
+    }
+
+
+def _write_row(ws, cols: dict, r: int, values: dict, matched_moh: bool,
+               matched_roots: bool, method: str | None) -> None:
+    for col, field in cols.items():
+        cell = ws[f"{col}{r}"]
+        cell.value = values.get(field)
+        if field in ("registered_products", "registered_companies",
+                     "roots_product", "roots_principal", "roots_status"):
+            if not matched_moh and not matched_roots:
+                cell.fill = EMPTY_FILL
+            elif method in ("skeleton", "brand"):
+                cell.fill = REVIEW_FILL
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+
 def export_tracker(db, template: str | Path, out_path: str | Path,
                    area_labels: dict | None = None,
                    where: str = "", params: tuple = (),
