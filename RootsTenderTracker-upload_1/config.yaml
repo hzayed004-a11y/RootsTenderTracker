@@ -88,10 +88,10 @@ sources:
       field_map: {}                 # our_field: their_json_key
 
 # ---------------- search-code -> Therapeutic Area ----------------
-# Fills column D of the tracker. ON and TB are unambiguous; the other three
-# are best guesses from the code letters -- CONFIRM AND EDIT THESE, since
-# they land directly in your sheet. Delete a code to fall back to the
-# classifier's own therapeutic area for that row.
+# Fallback for column D only. The codes turned out to be tender-series
+# prefixes rather than disease areas -- 6TB338 is desloratadine, not
+# tuberculosis -- so the classifier's reading of the molecule leads, and
+# these labels are used only for a row it cannot place at all.
 # Keys stay quoted - a bare ON is boolean true in YAML 1.1.
 therapeutic_area_codes:
   "ON": Oncology

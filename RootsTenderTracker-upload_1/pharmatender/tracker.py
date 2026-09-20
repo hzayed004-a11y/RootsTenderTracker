@@ -88,6 +88,17 @@ def detect_layout(path: str | Path) -> dict:
     }
 
 
+def _area_for(rec: dict, area_labels: dict) -> str:
+    """Column D: the classifier's therapeutic area, with the search code's
+    configured label kept only as a fallback. The code is a tender-series
+    prefix rather than a disease area, so it cannot lead here."""
+    for area in (rec.get("item_area"), rec.get("tender_area")):
+        if area and area != "Other Pharmaceutical":
+            return area
+    return (rec.get("item_area") or rec.get("tender_area")
+            or area_labels.get(rec.get("search_code")) or NA)
+
+
 def _join(value: str | None, limit: int = 3) -> str:
     """Reference matches are stored newline-separated; show the top few."""
     if not value:
@@ -142,9 +153,7 @@ def export_rows_to_bytes(rows: list[dict], template: str | Path,
 
     for offset, rec in enumerate(rows):
         r = start + offset
-        area = (rec.get("_area")
-                or area_labels.get(rec.get("search_code"))
-                or rec.get("item_area") or rec.get("tender_area") or NA)
+        area = rec.get("_area") or _area_for(rec, area_labels)
         values = _row_values(rec, area)
         method = rec.get("ref_match_method")
         matched_moh = values["registered_products"] != NA
@@ -218,8 +227,7 @@ def export_tracker(db, template: str | Path, out_path: str | Path,
 
     for offset, rec in enumerate(rows):
         r = start + offset
-        area = (area_labels.get(rec.get("search_code"))
-                or rec.get("item_area") or rec.get("tender_area") or NA)
+        area = _area_for(rec, area_labels)
 
         values = {
             "tender_number": rec.get("tender_number") or NA,

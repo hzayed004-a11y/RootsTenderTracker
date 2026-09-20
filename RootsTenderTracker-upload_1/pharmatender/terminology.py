@@ -230,6 +230,8 @@ THERAPEUTIC_AREAS: dict[str, set[str]] = {
         "multiple sclerosis", "epilepsy", "antiepileptic", "parkinson",
         "alzheimer", "dementia", "migraine", "myasthenia gravis", "neuropathic",
         "levetiracetam", "lamotrigine", "valproate", "carbamazepine",
+        "oxcarbazepine", "oxcarbazepin", "riluzole", "pregabalin",
+        "gabapentin", "phenytoin",
         "levodopa", "pramipexole", "rasagiline", "donepezil", "memantine",
         "natalizumab", "ocrelizumab", "fingolimod", "dimethyl fumarate",
         "teriflunomide", "interferon beta", "glatiramer", "erenumab",
@@ -260,6 +262,8 @@ THERAPEUTIC_AREAS: dict[str, set[str]] = {
         "antibiotic", "antibacterial", "antifungal", "antiviral", "antimalarial",
         "tuberculosis", "hiv", "antiretroviral", "hepatitis b", "hepatitis c",
         "meropenem", "imipenem", "piperacillin", "tazobactam", "vancomycin",
+        "cefazolin", "cefazoline", "cefuroxime", "ampicillin", "clindamycin",
+        "metronidazole", "nitrofurantoin",
         "linezolid", "daptomycin", "ceftriaxone", "ceftazidime", "cefepime",
         "colistin", "tigecycline", "amikacin", "gentamicin", "levofloxacin",
         "ciprofloxacin", "azithromycin", "amoxicillin", "clavulanate",
@@ -279,6 +283,55 @@ THERAPEUTIC_AREAS: dict[str, set[str]] = {
         "proton pump inhibitor", "omeprazole", "esomeprazole", "pantoprazole",
         "lansoprazole", "mesalazine", "ursodeoxycholic", "lactulose",
         "rifaximin", "loperamide", "domperidone", "metoclopramide",
+    },
+    # The areas below were missing, which is why most of what the Medical
+    # Store actually tenders for -- antipsychotics, analgesia, topicals and
+    # clinical nutrition -- had nowhere to land but "Other Pharmaceutical".
+    "Psychiatry": {
+        "paliperidone", "brexpiprazole", "aripiprazole", "olanzapine",
+        "risperidone", "quetiapine", "clozapine", "haloperidol",
+        "chlorpromazine", "lurasidone", "ziprasidone", "amisulpride",
+        "sertraline", "fluoxetine", "escitalopram", "citalopram",
+        "venlafaxine", "duloxetine", "mirtazapine", "bupropion",
+        "lithium carbonate", "buspirone", "schizophrenia",
+        "bipolar", "antipsychotic", "antidepressant", "invega sustenna",
+        "الأمراض النفسية", "الامراض النفسية",
+    },
+    "Pain & Anaesthesia": {
+        "paracetamol", "acetaminophen", "ibuprofen", "diclofenac",
+        "celecoxib", "naproxen", "ketorolac", "tramadol", "morphine",
+        "fentanyl", "oxycodone", "pethidine", "bupivacaine", "lidocaine",
+        "lignocaine", "ropivacaine", "prilocaine", "propofol", "ketamine",
+        "sevoflurane", "isoflurane", "rocuronium", "atracurium",
+        "neostigmine", "analgesic", "anaesthetic", "anesthetic", "مسكن",
+        "للتخدير", "مخدر موضعي",
+    },
+    "Dermatology": {
+        "clobetasol", "betamethasone valerate", "hydrocortisone cream",
+        "mometasone", "calcipotriol", "ketoconazole", "terbinafine",
+        "miconazole", "clotrimazole", "fusidic", "mupirocin", "isotretinoin",
+        "adapalene", "benzoyl peroxide", "tacrolimus ointment", "permethrin",
+        "الأمراض الجلدية", "الامراض الجلدية", "الفطريات",
+    },
+    "Clinical Nutrition": {
+        "enteral", "parenteral nutrition", "total parenteral",
+        "tube feeding", "infant formula", "amino acid based",
+        "nutritional supplement", "nutritional specifications",
+        "dietary management", "hypoallergenic formula", "whey protein",
+        "medium chain triglyceride", "تغذية علاجية", "تغذية أنبوبية",
+        "تغذية انبوبية",
+    },
+    "Allergy": {
+        "desloratadine", "loratadine", "cetirizine", "levocetirizine",
+        "fexofenadine", "bilastine", "rupatadine", "chlorpheniramine",
+        "hydroxyzine", "antihistamine", "allergic rhinitis", "urticaria",
+        "الحساسية", "حساسية",
+    },
+    "Ophthalmology": {
+        "latanoprost", "timolol", "brimonidine", "dorzolamide",
+        "ranibizumab", "aflibercept", "cyclopentolate", "tropicamide",
+        "artificial tears", "hypromellose", "eye drops", "ophthalmic",
+        "قطرة للعين", "العيون",
     },
 }
 

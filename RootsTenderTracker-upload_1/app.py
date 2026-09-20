@@ -542,7 +542,9 @@ name="table_selector" value="{esc(src.get('table_selector') or '')}"></div>
 value="{esc(','.join(_code(t) for t in src.get('title_search_terms',[])))}"></div>
 </div>
 <h3 style="font-size:13px;color:#8ba1b4;margin-top:20px">Therapeutic area per
-code</h3><p class="sub">These write straight into column D of your tracker.</p>
+code</h3><p class="sub">Column D is the classifier\'s reading of the molecule
+itself. These labels are the fallback for a row it cannot place - the codes
+are tender-series prefixes, so 6TB338 is desloratadine, not tuberculosis.</p>
 <div class="row">
 {''.join(f'<div><label>{c}</label><input name="area_{c}" value="{esc(codes.get(c,""))}"></div>' for c in ["IN","TB","ON","SP","NU"])}
 </div>
@@ -621,9 +623,18 @@ CLOSING_PRESETS = [
 
 
 def _display_area(rec: dict, area_labels: dict) -> str:
-    """Column D of the tracker: the code's label, else the classifier's area."""
-    return (area_labels.get(rec.get("search_code"))
-            or rec.get("item_area") or rec.get("tender_area") or NA_TEXT)
+    """Column D of the tracker: what the molecule is actually for.
+
+    The search code is a tender-series prefix, not a disease area -- 6TB338
+    is desloratadine, not tuberculosis -- so the classifier's reading of the
+    molecule wins. The code's configured label is kept only as a fallback for
+    rows the classifier could not place at all.
+    """
+    for area in (rec.get("item_area"), rec.get("tender_area")):
+        if area and area != "Other Pharmaceutical":
+            return area
+    return (rec.get("item_area") or rec.get("tender_area")
+            or area_labels.get(rec.get("search_code")) or NA_TEXT)
 
 
 def _area_labels(cfg: dict) -> dict:
@@ -649,7 +660,8 @@ def tracker_rows(db, cfg: dict, status: str = "all", area: str = "",
     """Every tracker row passing the current filters, in display order.
 
     Filtering happens here rather than in SQL because the therapeutic area
-    shown in column D is derived (search code first, classifier second), so
+    shown in column D is derived (the classifier first, the code label only as
+    a fallback), so
     the screen, the counts and the export all have to agree on one rule.
     """
     labels = _area_labels(cfg)
