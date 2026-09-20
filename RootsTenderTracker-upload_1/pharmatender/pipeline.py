@@ -7,6 +7,7 @@ skipped; the cycle continues.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -154,7 +155,11 @@ class Screener:
         seen_items: set[tuple] = set()
         for pd in parsed_docs:
             for item in docs.extract_items(pd):
-                key = (clean(item.get("product_name")).lower(),
+                # Compare on the latin core of the description: the Arabic
+                # spec text around it survives the PDF font map differently
+                # from one download to the next.
+                key = (re.sub(r"[^a-z0-9]", "",
+                              clean(item.get("product_name")).lower()),
                        clean(item.get("unit")).lower(),
                        item.get("quantity"))
                 if key in seen_items:

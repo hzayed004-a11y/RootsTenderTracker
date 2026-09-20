@@ -16,6 +16,19 @@ from pathlib import Path
 from .normalize import (clean, extract_dosage_form, extract_pack_size,
                         extract_strength, fold, parse_amount, parse_quantity)
 
+# Glyphs the PDF's font map cannot resolve come out as "(cid:6247)". The MOH
+# tender PDFs are regenerated per request and do not always embed the same
+# subset, so the very same line can arrive clean once and littered with these
+# the next time -- which also made one item look like two.
+_CID_RX = re.compile(r"\(cid:\d+\)")
+
+
+def strip_cid(text: str | None) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s{2,}", " ", _CID_RX.sub("", str(text))).strip()
+
+
 TEXT_EXT = {".txt", ".csv"}
 PDF_EXT = {".pdf"}
 WORD_EXT = {".docx", ".doc"}
@@ -61,10 +74,10 @@ def _parse_pdf(data: bytes, name: str) -> ParsedDoc:
             with pdfplumber.open(io.BytesIO(data)) as pdf:
                 parts = []
                 for page in pdf.pages:
-                    parts.append(page.extract_text() or "")
+                    parts.append(strip_cid(page.extract_text() or ""))
                     for tbl in page.extract_tables() or []:
                         doc.tables.append(
-                            [[clean(c) for c in row] for row in tbl if row]
+                            [[strip_cid(clean(c)) for c in row] for row in tbl if row]
                         )
                 doc.text = "\n".join(parts)
         except Exception as exc:

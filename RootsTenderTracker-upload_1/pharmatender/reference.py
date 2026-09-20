@@ -322,12 +322,30 @@ def load_roots(path: str | Path) -> list[dict]:
 # names collide: "Keytruda"/"Ketotard" both reduce to "ctrd".
 MIN_SKELETON = 5
 
+# Two consonant skeletons of very different length are not the same molecule
+# however much they overlap: "piperacillin" (pprcln) must not land on
+# "Parcalin" (prcln). Require the shorter to be at least this fraction of
+# the longer before a skeleton hit is accepted.
+SKELETON_LEN_RATIO = 0.8
+
 STOPWORDS = {
     "supply", "supplies", "tender", "annual", "various", "assorted", "item",
     "items", "medicine", "medicines", "drug", "drugs", "product", "products",
     "medical", "store", "hospital", "ministry", "health", "kuwait", "quantity",
     "requirement", "requirements", "contract", "year", "years", "please",
     "note", "specification", "specifications", "brand", "generic", "original",
+    # Presentation words are not molecules. Left in, "shampoo" pulled out of
+    # "CLOBETASOL PROPIONATE SHAMPOO" matches every Roots shampoo -- which is
+    # how a clobetasol tender came back matched to a ketoconazole SKU.
+    "shampoo", "cream", "ointment", "lotion", "syrup", "suspension",
+    "solution", "injection", "infusion", "tablet", "tablets", "capsule",
+    "capsules", "sachet", "sachets", "suppository", "suppositories",
+    "powder", "granules", "spray", "drops", "inhaler", "patch", "patches",
+    "ampoule", "ampoules", "vials", "syringe", "syringes", "bottle",
+    "bottles", "sterile", "coated", "release", "effervescent", "chewable",
+    "dispersible", "orodispersible", "prefilled", "concentrate", "emulsion",
+    "irrigation", "irrg", "topical", "oral", "intravenous", "unflavoured",
+    "flavour", "flavoured", "nutritional", "formula",
 }
 
 
@@ -370,6 +388,20 @@ def load_brand_bridge(path: str | Path = "brand_inn.yaml") -> dict[str, set[str]
     return bridge
 
 
+def _comparable_length(a: str, b: str) -> bool:
+    """True when two words are close enough in length to be the same molecule.
+
+    The consonant skeleton deliberately collapses doubled letters and vowels,
+    which makes it blind to how much word it threw away: "piperacillin" and
+    "Parcalin" both reduce to "prcln". Comparing the source words keeps that
+    pair apart without weakening real transliteration matches.
+    """
+    la, lb = len(a), len(b)
+    if not la or not lb:
+        return False
+    return min(la, lb) / max(la, lb) >= SKELETON_LEN_RATIO
+
+
 class ReferenceIndex:
     """Molecule -> registered products (MOH) and Roots portfolio entries."""
 
@@ -381,6 +413,9 @@ class ReferenceIndex:
 
         self.moh_by_skeleton: dict[str, list[int]] = defaultdict(list)
         self.moh_tokens: dict[str, list[int]] = defaultdict(list)
+        # skeleton -> (row, the token it came from), so a skeleton hit can be
+        # sanity-checked against the length of the word that produced it
+        self.moh_skel: dict[str, list[tuple[int, str]]] = defaultdict(list)
         for i, r in enumerate(moh_rows):
             if r["skeleton"]:
                 self.moh_by_skeleton[r["skeleton"]].append(i)
@@ -389,10 +424,10 @@ class ReferenceIndex:
                     self.moh_tokens[tok].append(i)
                     sk = skeleton(tok)
                     if len(sk) >= MIN_SKELETON:
-                        self.moh_tokens[f"~{sk}"].append(i)
+                        self.moh_skel[sk].append((i, tok))
 
         self.roots_exact: dict[str, list[int]] = defaultdict(list)
-        self.roots_skel: dict[str, list[int]] = defaultdict(list)
+        self.roots_skel: dict[str, list[tuple[int, str]]] = defaultdict(list)
         for i, r in enumerate(roots_rows):
             # index the API cell and the product-name cell alike
             for raw in (r.get("api"), r.get("product_name")):
@@ -403,10 +438,10 @@ class ReferenceIndex:
                             self.roots_exact[tok].append(i)
                             sk = skeleton(tok)
                             if len(sk) >= MIN_SKELETON:
-                                self.roots_skel[sk].append(i)
+                                self.roots_skel[sk].append((i, tok))
                     sk = skeleton(v)
                     if len(sk) >= 4:
-                        self.roots_skel[sk].append(i)
+                        self.roots_skel[sk].append((i, v))
 
     # ---------------- MOH registered products ----------------
 
@@ -438,8 +473,9 @@ class ReferenceIndex:
             if len(hits) == before and not via_brand:
                 sk = skeleton(term)
                 if len(sk) >= MIN_SKELETON:
-                    for i in self.moh_tokens.get(f"~{sk}", []):
-                        hits.setdefault(i, "skeleton")
+                    for i, src in self.moh_skel.get(sk, []):
+                        if _comparable_length(term, src):
+                            hits.setdefault(i, "skeleton")
             if len(hits) >= limit * 4:
                 break
 
@@ -471,8 +507,9 @@ class ReferenceIndex:
             if len(hits) == before and not via_brand:
                 sk = skeleton(term)
                 if len(sk) >= MIN_SKELETON:
-                    for i in self.roots_skel.get(sk, []):
-                        hits.setdefault(i, "skeleton")
+                    for i, src in self.roots_skel.get(sk, []):
+                        if _comparable_length(term, src):
+                            hits.setdefault(i, "skeleton")
 
         if not hits:
             return {"products": [], "principals": [], "statuses": [],

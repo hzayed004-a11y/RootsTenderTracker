@@ -18,13 +18,14 @@ import logging
 import os
 import threading
 import traceback
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from pharmatender.normalize import NA as NA_TEXT
 from pharmatender import reference as ref
 from pharmatender import tracker as trk
 from pharmatender.db import Database
@@ -217,9 +218,13 @@ border-radius:0 7px 7px 0;font-size:13.5px;margin:12px 0}
 .note.bad{border-color:var(--bad);background:#241315}
 .note.ok{border-color:var(--good);background:#10231a}
 .muted{color:var(--dim)}
+tr.hit td{background:#0f2418}
+tr.dim td{color:#7d8d9c}
+table td{vertical-align:top}
 """
 
-NAV = [("/", "Dashboard"), ("/tenders", "Tenders"), ("/review", "Review queue"),
+NAV = [("/", "Dashboard"), ("/tracker", "Tracker"), ("/reports", "Reports"),
+       ("/tenders", "Tenders"), ("/review", "Review queue"),
        ("/export", "Export tracker"), ("/lookup", "Molecule lookup"),
        ("/calibrate", "Portal setup"), ("/history", "History"),
        ("/forecast", "Forecast")]
@@ -248,6 +253,12 @@ def esc(v) -> str:
         return '<span class="muted">-</span>'
     return (str(v).replace("&", "&amp;").replace("<", "&lt;")
             .replace(">", "&gt;").replace("\n", "<br>"))
+
+
+def esc_attr(v) -> str:
+    """Escaping for a value that lands inside an HTML attribute."""
+    return (str(v or "").replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 # ------------------------------------------------------------------ auth
@@ -574,6 +585,239 @@ def calibrate_save(url: str = Form(""), mode: str = Form("html"),
 
 
 # ---------------------------------------------------------------- tenders
+
+TRACKER_FILTERS = [
+    ("roots", "Roots SKU match"),
+    ("open", "Open tenders"),
+    ("all", "All line items"),
+    ("oncology", "Oncology"),
+    ("nomatch", "No match"),
+    ("review", "Needs review"),
+]
+
+
+def _tracker_where(filter: str, q: str) -> tuple[str, list]:
+    """SQL for one tracker filter, plus the free-text search."""
+    clauses, params = [], []
+    today = date.today().isoformat()
+    if filter == "roots":
+        clauses.append("IFNULL(i.roots_product,'') <> ''")
+    elif filter == "open":
+        clauses.append("IFNULL(t.submission_deadline,'') >= ?")
+        params.append(today)
+    elif filter == "oncology":
+        clauses.append("(i.is_oncology = 1 OR t.is_oncology = 1)")
+    elif filter == "nomatch":
+        clauses.append("IFNULL(i.roots_product,'') = '' "
+                       "AND IFNULL(i.registered_products,'') = ''")
+    elif filter == "review":
+        clauses.append("i.needs_review = 1")
+    if q:
+        clauses.append("(i.product_name LIKE ? OR t.tender_number LIKE ? "
+                       "OR IFNULL(i.roots_product,'') LIKE ? "
+                       "OR IFNULL(i.registered_products,'') LIKE ?)")
+        params += [f"%{q}%"] * 4
+    return (" AND ".join(clauses), params)
+
+
+@app.get("/tracker", response_class=HTMLResponse)
+def tracker_view(filter: str = "roots", q: str = ""):
+    """The tracker itself, on screen: one row per tender line item, in the
+    same eleven columns as the Excel template."""
+    db = get_db()
+    cfg = load_config()
+    labels = {_code(t): t.get("label") for t in
+              cfg.get("sources", {}).get("moh_kw", {}).get("title_search_terms", [])
+              if isinstance(t, dict)}
+    area_labels = {("ON" if k is True else "NO" if k is False else str(k)): v
+                   for k, v in (cfg.get("therapeutic_area_codes") or {}).items()}
+    q = (q or "").strip()
+    where, params = _tracker_where(filter, q)
+    rows = trk.fetch_rows(db, where, tuple(params))
+
+    counts = {}
+    for key, _lab in TRACKER_FILTERS:
+        w, pr = _tracker_where(key, q)
+        counts[key] = len(trk.fetch_rows(db, w, tuple(pr)))
+
+    tabs = "".join(
+        f'<a class="btn {"" if filter == k else "sec"}" '
+        f'href="/tracker?filter={k}&q={esc_attr(q)}">{lab} ({counts[k]})</a> '
+        for k, lab in TRACKER_FILTERS)
+
+    today = date.today().isoformat()
+    body_rows = ""
+    for r in rows[:600]:
+        area = (area_labels.get(r.get("search_code"))
+                or r.get("item_area") or r.get("tender_area") or NA_TEXT)
+        roots = trk._join(r.get("roots_product"))
+        moh = trk._join(r.get("registered_products"))
+        method = r.get("ref_match_method")
+        if roots != NA_TEXT:
+            cls, tag = "hit", ('<span class="tag t-ok">SKU</span>'
+                               if method == "exact" else
+                               '<span class="tag t-rev">SKU?</span>')
+        elif moh != NA_TEXT:
+            cls, tag = "", '<span class="tag t-na">REG</span>'
+        else:
+            cls, tag = "dim", ""
+        deadline = r.get("submission_deadline") or ""
+        closing = esc(deadline)
+        if deadline and deadline < today:
+            closing = f'<span class="muted">{esc(deadline)} (closed)</span>'
+        body_rows += (
+            f'<tr class="{cls}"><td>{esc(r.get("tender_number"))} {tag}</td>'
+            f'<td>{closing}</td>'
+            f'<td>{esc((r.get("product_name") or "")[:150])}</td>'
+            f'<td>{esc(area)}</td><td>{esc(r.get("unit"))}</td>'
+            f'<td>{esc(r.get("quantity"))}</td>'
+            f'<td>{esc(moh)}</td><td>{esc(trk._join(r.get("registered_companies")))}</td>'
+            f'<td><b>{esc(roots)}</b></td>'
+            f'<td>{esc(trk._join(r.get("roots_principal")))}</td>'
+            f'<td>{esc(trk._join(r.get("roots_status")))}</td></tr>')
+
+    shown = min(len(rows), 600)
+    more = ("" if len(rows) <= 600 else
+            f'<p class="sub">Showing the first 600 of {len(rows)}.</p>')
+    body = f"""<div class="panel"><h2>Tracker</h2>
+<p class="sub">One row per tender line item, in the eleven columns of your
+template. Columns A-F come from the portal and its tender documents; G-H from
+the MOH price lists; I-K from the Roots registered-products sheet.</p>
+<form method="get" action="/tracker" style="display:flex;gap:9px;margin:12px 0">
+<input type="hidden" name="filter" value="{esc_attr(filter)}">
+<input name="q" value="{esc_attr(q)}" placeholder="search molecule, tender no. or SKU"
+ style="max-width:340px">
+<button class="btn">Search</button>
+{'<a class="btn sec" href="/tracker?filter=' + esc_attr(filter) + '">Clear</a>' if q else ''}
+</form>
+{tabs}</div>
+<div class="panel"><p class="sub">{shown} row(s)</p>{more}
+<div style="overflow-x:auto"><table>
+<tr><th>Tender no.</th><th>Closing Date</th><th>Item Description</th>
+<th>Theraputic Area</th><th>Unit</th><th>Tender QTY</th>
+<th>Registered products</th><th>Company name</th>
+<th>Roots product name</th><th>Principle name</th><th>Registration status</th></tr>
+{body_rows or '<tr><td colspan=11 class=muted>Nothing matches this filter yet - run a screening cycle from the dashboard.</td></tr>'}
+</table></div></div>"""
+    return page("Tracker", body, "/tracker")
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports():
+    """Where the screening result turns into something to act on: which open
+    tenders Roots can actually bid, who the principal is, and what is closing
+    soonest."""
+    db = get_db()
+    today = date.today().isoformat()
+    horizon = (date.today() + timedelta(days=30)).isoformat()
+
+    def one(sql, params=()):
+        r = db.query(sql, params)
+        return r[0]["v"] if r else 0
+
+    tenders_n = one("SELECT COUNT(*) v FROM tenders")
+    items_n = one("SELECT COUNT(*) v FROM tender_items")
+    roots_n = one("SELECT COUNT(*) v FROM tender_items "
+                  "WHERE IFNULL(roots_product,'') <> ''")
+    moh_n = one("SELECT COUNT(*) v FROM tender_items "
+                "WHERE IFNULL(registered_products,'') <> ''")
+    open_n = one("SELECT COUNT(*) v FROM tenders "
+                 "WHERE IFNULL(submission_deadline,'') >= ?", (today,))
+    open_roots = one("""SELECT COUNT(*) v FROM tender_items i
+                        JOIN tenders t ON t.id = i.tender_id
+                        WHERE IFNULL(i.roots_product,'') <> ''
+                          AND IFNULL(t.submission_deadline,'') >= ?""", (today,))
+
+    cards = "".join(
+        f'<div class="card"><div class="n">{v}</div><div class="k">{k}</div></div>'
+        for k, v in [("Tenders", tenders_n), ("Line items", items_n),
+                     ("Open tenders", open_n),
+                     ("Roots SKU matches", roots_n),
+                     ("Open + Roots match", open_roots),
+                     ("MOH registered", moh_n)])
+
+    # --- bidding opportunities: open tenders where Roots has a SKU ---
+    opps = db.query("""
+        SELECT t.tender_number, t.submission_deadline, i.product_name,
+               i.unit, i.quantity, i.roots_product, i.roots_principal,
+               i.roots_status, i.ref_match_method
+        FROM tender_items i JOIN tenders t ON t.id = i.tender_id
+        WHERE IFNULL(i.roots_product,'') <> ''
+          AND IFNULL(t.submission_deadline,'') >= ?
+        ORDER BY t.submission_deadline, t.tender_number""", (today,))
+    opp_rows = "".join(
+        f"<tr><td>{esc(r['tender_number'])}</td>"
+        f"<td>{esc(r['submission_deadline'])}</td>"
+        f"<td>{esc((r['product_name'] or '')[:90])}</td>"
+        f"<td>{esc(r['unit'])}</td><td>{esc(r['quantity'])}</td>"
+        f"<td><b>{esc(trk._join(r['roots_product']))}</b></td>"
+        f"<td>{esc(trk._join(r['roots_principal']))}</td>"
+        f"<td>{esc(trk._join(r['roots_status']))}</td>"
+        f"""<td>{'<span class="tag t-ok">exact</span>'
+                 if r['ref_match_method'] == 'exact'
+                 else '<span class="tag t-rev">verify</span>'}</td></tr>"""
+        for r in opps)
+
+    # --- closing soonest, whether or not Roots has a SKU ---
+    soon = db.query("""
+        SELECT tender_number, submission_deadline, therapeutic_area,
+               tender_title, priority
+        FROM tenders
+        WHERE IFNULL(submission_deadline,'') >= ?
+          AND IFNULL(submission_deadline,'') <= ?
+        ORDER BY submission_deadline LIMIT 40""", (today, horizon))
+    soon_rows = "".join(
+        f"<tr><td>{esc(r['tender_number'])}</td><td>{esc(r['submission_deadline'])}</td>"
+        f"<td>{esc(r['therapeutic_area'])}</td>"
+        f"<td>{esc((r['tender_title'] or '')[:80])}</td>"
+        f"<td>{esc(r['priority'])}</td></tr>" for r in soon)
+
+    # --- by principal and by therapeutic area ---
+    by_principal = db.query("""
+        SELECT i.roots_principal p, COUNT(*) n FROM tender_items i
+        WHERE IFNULL(i.roots_principal,'') <> ''
+        GROUP BY i.roots_principal ORDER BY n DESC""")
+    prin_rows = "".join(f"<tr><td>{esc(r['p'])}</td><td>{r['n']}</td></tr>"
+                        for r in by_principal)
+    by_area = db.query("""
+        SELECT IFNULL(NULLIF(therapeutic_area,''),'Unclassified') a,
+               COUNT(*) n FROM tenders GROUP BY a ORDER BY n DESC""")
+    area_rows = "".join(f"<tr><td>{esc(r['a'])}</td><td>{r['n']}</td></tr>"
+                        for r in by_area)
+
+    body = f"""<div class="panel"><h2>Reports</h2>
+<p class="sub">Screening result as of {today}.</p>
+<div class="cards">{cards}</div>
+<div style="margin-top:14px">
+<a class="btn" href="/tracker?filter=roots">Open the tracker</a>
+<a class="btn sec" href="/export">Download the workbook</a></div></div>
+
+<div class="panel"><h2>Bidding opportunities</h2>
+<p class="sub">Open tenders where the screened molecule matches a Roots
+registered product. "verify" marks a fuzzy molecule match - check it before
+relying on it.</p>
+<div style="overflow-x:auto"><table>
+<tr><th>Tender no.</th><th>Closing</th><th>Item</th><th>Unit</th><th>Qty</th>
+<th>Roots product</th><th>Principal</th><th>Status</th><th>Match</th></tr>
+{opp_rows or '<tr><td colspan=9 class=muted>No open tender currently matches a Roots SKU.</td></tr>'}
+</table></div></div>
+
+<div class="panel"><h2>Closing within 30 days</h2>
+<div style="overflow-x:auto"><table>
+<tr><th>Tender no.</th><th>Closing</th><th>Area</th><th>Title</th><th>Priority</th></tr>
+{soon_rows or '<tr><td colspan=5 class=muted>Nothing closing in the next 30 days.</td></tr>'}
+</table></div></div>
+
+<div class="row">
+<div class="panel"><h2>Roots SKU hits by principal</h2><table>
+<tr><th>Principal</th><th>Line items</th></tr>
+{prin_rows or '<tr><td colspan=2 class=muted>No Roots matches yet.</td></tr>'}</table></div>
+<div class="panel"><h2>Tenders by therapeutic area</h2><table>
+<tr><th>Area</th><th>Tenders</th></tr>
+{area_rows or '<tr><td colspan=2 class=muted>No tenders yet.</td></tr>'}</table></div>
+</div>"""
+    return page("Reports", body, "/reports")
+
 
 @app.get("/tenders", response_class=HTMLResponse)
 def tenders(filter: str = "all"):
