@@ -1,0 +1,139 @@
+# ============================================================
+# Pharmaceutical Tender Screening System -- configuration
+# ============================================================
+# Everything site-specific lives here, not in code. After running
+# `python run.py probe`, paste the generated draft_config.yaml block
+# over the `sources.moh_kw` section below.
+
+database:      data/tenders.db
+document_dir:  documents
+export_dir:    exports
+log_dir:       logs
+tracker_template: reference_data/Kuwait_Tenders_Tracker.xlsx
+brand_bridge:     brand_inn.yaml
+excel_mapping:    mapping.yaml     # only for the generic `export` command
+
+# ---------------- reference data ----------------
+# Ingested by `python run.py load-reference`. Re-run whenever MOH publishes a
+# new price list or the Roots sheet is updated.
+reference:
+  drug_price_list: reference_data/Drug_Price_List_May-2026.pdf
+  food_price_list: reference_data/FoodSupp_Price_List_May-2026.pdf
+  roots_products:  reference_data/Roots_Registered_Products__2026_.xlsx
+
+# ---------------- HTTP behaviour ----------------
+# Keep the delay polite. This is a government portal; hammering it is both
+# rude and the fastest way to get blocked.
+delay_seconds: 2.0
+timeout: 45
+retries: 3
+backoff: 1.5
+verify_tls: true
+
+download_documents: true
+max_documents_per_tender: 12
+max_document_bytes: 80000000
+
+# ---------------- portal adapters ----------------
+sources:
+  moh_kw:
+    url: https://etenders.moh.gov.kw/pdApps/CompanyRegistration/v1/ViewTenders
+
+    # "html" = results are in the page HTML
+    # "json" = the page calls an API; probe will tell you which
+    mode: html
+
+    # --- CALIBRATE: run `python run.py probe` and fill these in ---
+    department_field: null          # form field name for the dropdown
+    title_field: null               # form field name for the tender-title box
+    departments:
+      - label: Medical Store
+        value: REPLACE_ME           # the <option value="..."> from probe
+
+    # Searched one at a time in the tender-title box. Each is a disease-area
+    # prefix; a cycle runs every code against every department above.
+    # NOTE the quotes: YAML 1.1 reads a bare ON as the boolean true (likewise
+    # NO, OFF, YES). Unquoted, the oncology code silently became True.
+    title_search_terms:
+      - {code: "IN"}
+      - {code: "TB"}
+      - {code: "ON"}
+      - {code: "SP"}
+      - {code: "NU"}
+
+    table_selector: null            # e.g. "#tblTenders"; null = auto-detect
+    extra_form_fields: {}           # e.g. search button name/value
+    detail_url_template: null       # e.g. ".../ViewTender?id={tenderId}"
+
+    login:
+      required: false               # probe reports whether a password field exists
+      url: null
+      username_field: username
+      password_field: password
+      username_env: MOH_KW_USER     # credentials come from the environment,
+      password_env: MOH_KW_PASS     # never from this file
+      success_marker: ""
+
+    # only used when mode: json
+    api:
+      url: null
+      method: GET
+      params: {}
+      department_param: departmentId
+      page_param: null
+      page_size: 50
+      rows_path: []                 # e.g. ["data", "items"]
+      field_map: {}                 # our_field: their_json_key
+
+# ---------------- search-code -> Therapeutic Area ----------------
+# Fills column D of the tracker. ON and TB are unambiguous; the other three
+# are best guesses from the code letters -- CONFIRM AND EDIT THESE, since
+# they land directly in your sheet. Delete a code to fall back to the
+# classifier's own therapeutic area for that row.
+# Keys stay quoted - a bare ON is boolean true in YAML 1.1.
+therapeutic_area_codes:
+  "ON": Oncology
+  "TB": Tuberculosis
+  "IN": Infectious Disease      # CONFIRM - could also be "Internal Medicine"
+  "SP": Specialty               # CONFIRM
+  "NU": Nutrition               # CONFIRM
+
+# ---------------- classification ----------------
+oncology_threshold: 0.45       # >= this score => classified Oncology
+oncology_review_floor: 0.22    # between floor and threshold => manual review
+review_unclassified: true      # flag pharma tenders with no clear area
+review_device_tenders: false   # true = also queue biomedical device tenders
+
+# ---------------- prioritisation ----------------
+# Your target portfolio. These names are matched against titles, product
+# names and document text. Add molecules, brands, or therapeutic phrases.
+# Auto-populated below from the Onko oncology portfolio in the Roots sheet.
+# Add anything else you want flagged High Priority.
+portfolio:
+  - fluorouracil
+  - anastrozole
+  - azacitidine
+  - busulfan
+  - carboplatin
+  - lenalidomide
+  - letrozole
+  - mitomycin
+  - carmustine
+  - macitentan
+
+specialty_areas:
+  - Hematology
+  - Rare Disease
+  - Immunology
+
+priority_weights:
+  oncology: 50
+  portfolio_match: 35
+  specialty_area: 22
+  high_value: 20
+  commodity_penalty: -18
+  device_penalty: -12
+
+high_priority_cutoff: 45
+medium_priority_cutoff: 15
+high_value_threshold_kwd: 100000

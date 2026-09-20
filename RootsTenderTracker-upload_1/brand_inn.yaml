@@ -1,0 +1,213 @@
+# Brand -> INN bridge.
+#
+# WHY THIS FILE EXISTS
+# The MOH Kuwait price list has no active-ingredient column, and originator
+# products appear under brand names only: "Herceptin 440mg" is listed, but the
+# string "trastuzumab" appears nowhere in the file. Searching the price list by
+# molecule therefore misses every originator unless the brand is known.
+#
+# This bridge is consulted in both directions: a tender line naming a molecule
+# also searches its brands, and a tender line naming a brand also searches the
+# molecule. Matches found this way are tagged method "brand" so they can be
+# audited separately from direct hits.
+#
+# Add your own entries freely -- format is  brand: inn
+# Lowercase both sides. One brand per line; a molecule may repeat.
+
+# ---------------------------------------------------------------- oncology
+herceptin: trastuzumab
+perjeta: pertuzumab
+kadcyla: trastuzumab emtansine
+enhertu: trastuzumab deruxtecan
+avastin: bevacizumab
+mabthera: rituximab
+rituxan: rituximab
+erbitux: cetuximab
+vectibix: panitumumab
+cyramza: ramucirumab
+keytruda: pembrolizumab
+opdivo: nivolumab
+yervoy: ipilimumab
+tecentriq: atezolizumab
+imfinzi: durvalumab
+bavencio: avelumab
+libtayo: cemiplimab
+jemperli: dostarlimab
+gazyva: obinutuzumab
+arzerra: ofatumumab
+darzalex: daratumumab
+sarclisa: isatuximab
+empliciti: elotuzumab
+adcetris: brentuximab vedotin
+polivy: polatuzumab vedotin
+padcev: enfortumab vedotin
+trodelvy: sacituzumab govitecan
+blincyto: blinatumomab
+glivec: imatinib
+gleevec: imatinib
+tasigna: nilotinib
+sprycel: dasatinib
+bosulif: bosutinib
+iclusig: ponatinib
+tarceva: erlotinib
+iressa: gefitinib
+giotrif: afatinib
+tagrisso: osimertinib
+alecensa: alectinib
+xalkori: crizotinib
+zykadia: ceritinib
+alunbrig: brigatinib
+lorviqua: lorlatinib
+nerlynx: neratinib
+tykerb: lapatinib
+tyverb: lapatinib
+ibrance: palbociclib
+kisqali: ribociclib
+verzenio: abemaciclib
+verzenios: abemaciclib
+lynparza: olaparib
+zejula: niraparib
+rubraca: rucaparib
+talzenna: talazoparib
+venclexta: venetoclax
+venclyxto: venetoclax
+imbruvica: ibrutinib
+calquence: acalabrutinib
+brukinsa: zanubrutinib
+jakavi: ruxolitinib
+jakafi: ruxolitinib
+nexavar: sorafenib
+sutent: sunitinib
+votrient: pazopanib
+inlyta: axitinib
+cabometyx: cabozantinib
+lenvima: lenvatinib
+stivarga: regorafenib
+afinitor: everolimus
+revlimid: lenalidomide
+pomalyst: pomalidomide
+imnovid: pomalidomide
+velcade: bortezomib
+kyprolis: carfilzomib
+ninlaro: ixazomib
+xtandi: enzalutamide
+zytiga: abiraterone
+erleada: apalutamide
+nubeqa: darolutamide
+casodex: bicalutamide
+zoladex: goserelin
+eligard: leuprorelin
+lupron: leuprorelin
+firmagon: degarelix
+faslodex: fulvestrant
+arimidex: anastrozole
+femara: letrozole
+aromasin: exemestane
+nolvadex: tamoxifen
+taxol: paclitaxel
+abraxane: paclitaxel
+taxotere: docetaxel
+jevtana: cabazitaxel
+gemzar: gemcitabine
+alimta: pemetrexed
+xeloda: capecitabine
+eloxatin: oxaliplatin
+paraplatin: carboplatin
+campto: irinotecan
+hycamtin: topotecan
+vidaza: azacitidine
+dacogen: decitabine
+temodal: temozolomide
+temodar: temozolomide
+caelyx: doxorubicin
+halaven: eribulin
+yondelis: trabectedin
+
+# ------------------------------------------------ supportive oncology
+neulasta: pegfilgrastim
+neupogen: filgrastim
+aranesp: darbepoetin
+eprex: epoetin
+zometa: zoledronic acid
+xgeva: denosumab
+prolia: denosumab
+emend: aprepitant
+zofran: ondansetron
+kytril: granisetron
+aloxi: palonosetron
+
+# ------------------------------------------------ cardiology / metabolic
+crestor: rosuvastatin
+lipitor: atorvastatin
+plavix: clopidogrel
+brilinta: ticagrelor
+xarelto: rivaroxaban
+eliquis: apixaban
+pradaxa: dabigatran
+januvia: sitagliptin
+galvus: vildagliptin
+jardiance: empagliflozin
+forxiga: dapagliflozin
+lantus: insulin glargine
+trulicity: dulaglutide
+ozempic: semaglutide
+victoza: liraglutide
+eltroxin: levothyroxine
+fosamax: alendronate
+
+# ------------------------------------------------ immunology
+humira: adalimumab
+enbrel: etanercept
+remicade: infliximab
+actemra: tocilizumab
+cosentyx: secukinumab
+stelara: ustekinumab
+entyvio: vedolizumab
+xeljanz: tofacitinib
+rinvoq: upadacitinib
+dupixent: dupilumab
+xolair: omalizumab
+
+# ------------------------------------------------ anti-infective
+augmentin: amoxicillin clavulanate
+zithromax: azithromycin
+tavanic: levofloxacin
+ciproxin: ciprofloxacin
+meronem: meropenem
+tienam: imipenem
+tazocin: piperacillin tazobactam
+vfend: voriconazole
+cancidas: caspofungin
+diflucan: fluconazole
+
+# ------------------------------------------------ neurology / respiratory
+lyrica: pregabalin
+keppra: levetiracetam
+depakine: valproate
+tegretol: carbamazepine
+aricept: donepezil
+ebixa: memantine
+gilenya: fingolimod
+tysabri: natalizumab
+ocrevus: ocrelizumab
+seretide: fluticasone salmeterol
+symbicort: budesonide formoterol
+ventolin: salbutamol
+spiriva: tiotropium
+singulair: montelukast
+
+# ------------------------------------------------ rare disease / haematology
+exjade: deferasirox
+jadenu: deferasirox
+ferriprox: deferiprone
+desferal: deferoxamine
+hemlibra: emicizumab
+soliris: eculizumab
+spinraza: nusinersen
+evrysdi: risdiplam
+
+# ------------------------------------------------ general
+nexium: esomeprazole
+losec: omeprazole
+panadol: paracetamol
+voltaren: diclofenac
