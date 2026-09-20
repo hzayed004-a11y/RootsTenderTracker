@@ -54,6 +54,22 @@ COLUMN_ALIASES = {
 
 DOC_EXT_RX = re.compile(r"\.(pdf|docx?|xlsx?|zip|rar|7z)(\?|$)", re.IGNORECASE)
 
+# The results grid uses headers that the generic aliases above read wrongly:
+# its "Title" column holds the practice number (6ON086) and "Description"
+# holds the actual subject. Exact header text wins over the fuzzy aliases.
+GRID_COLUMN_OVERRIDES = {
+    "title": "tender_number",
+    "description": "tender_title",
+    "posting date": "publication_date",
+    "closing date": "submission_deadline",
+    "department": "department",
+    "amount": "tender_fee",          # price of the tender documents, not the value
+}
+
+# Documents hang off JavaScript postbacks, not hrefs:
+#   javascript:__doPostBack('gv1$ctl02$lnkDownload','')
+POSTBACK_RX = re.compile(r"__doPostBack\(\s*'([^']+)'\s*,\s*'([^']*)'\s*\)")
+
 
 def _map_header(text: str) -> str | None:
     t = clean(text).lower()
@@ -219,13 +235,17 @@ class MohKuwaitAdapter(BaseAdapter):
                 "No results table found. Run `pharmatender probe` and update "
                 "sources.moh_kw.table_selector in config.yaml."
             )
-        yield from self._parse_table(table, dept, resp.url)
+        # The hidden state of the *results* page. Each document postback has to
+        # be replayed against this exact state, so capture it once here.
+        state = self._form_payload(soup)
+        state.pop("btnGo", None)
+        yield from self._parse_table(table, dept, resp.url, state)
 
-    def _post_search(self, soup: BeautifulSoup, dept: dict, title_term: str = ""):
-        """Replay the Search button. ASP.NET needs the hidden state fields."""
+    def _form_payload(self, soup: BeautifulSoup) -> dict:
+        """Every named field of the page's form, ASP.NET hidden state included."""
         form = soup.find("form")
         if form is None:
-            return soup
+            return {}
         payload = {}
         for inp in form.find_all(("input", "select", "textarea")):
             name = inp.get("name")
@@ -239,6 +259,16 @@ class MohKuwaitAdapter(BaseAdapter):
                     payload[name] = inp.get("value", "on")
             else:
                 payload[name] = inp.get("value", "")
+        # Never submit Clear: it wipes the search we are about to run.
+        payload.pop("btnClear", None)
+        return payload
+
+    def _post_search(self, soup: BeautifulSoup, dept: dict, title_term: str = ""):
+        """Replay the Search button. ASP.NET needs the hidden state fields."""
+        form = soup.find("form")
+        if form is None:
+            return soup
+        payload = self._form_payload(soup)
 
         dept_field = self.cfg.get("department_field")
         if dept_field and dept.get("value"):
@@ -269,13 +299,68 @@ class MohKuwaitAdapter(BaseAdapter):
                 best, best_score = table, score
         return best if best_score >= 2 else None
 
-    def _parse_table(self, table, dept: dict, page_url: str):
+    def _download_postback(self, state: dict, target: str):
+        """Replay one document postback and return (bytes, filename).
+
+        The portal answers a download postback with the file itself, leaving
+        the page state untouched, so the same state drives every row.
+        """
+        payload = dict(state)
+        payload["__EVENTTARGET"] = target
+        payload["__EVENTARGUMENT"] = ""
+        self.polite_sleep()
+        resp = self.session.post(self.base_url, data=payload,
+                                 timeout=self.config.get("timeout", 45))
+        resp.raise_for_status()
+        ctype = (resp.headers.get("Content-Type") or "").lower()
+        if "html" in ctype:
+            return None, ""      # no document behind this link
+        name = ""
+        disp = resp.headers.get("Content-Disposition") or ""
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', disp)
+        if m:
+            name = m.group(1).strip()
+        return resp.content, name
+
+    def _row_documents(self, tr, state: dict, tender_no: str) -> list[Attachment]:
+        """Collect the PDFs behind a row's __doPostBack download links."""
+        out: list[Attachment] = []
+        if not state:
+            return out
+        seen = set()
+        for a in tr.find_all("a", href=True):
+            m = POSTBACK_RX.search(a["href"])
+            if not m:
+                continue
+            target = m.group(1)
+            # Payment links open a billing flow, not a document.
+            if target in seen or "download" not in target.lower():
+                continue
+            seen.add(target)
+            try:
+                data, name = self._download_postback(state, target)
+            except Exception as exc:
+                if self.log:
+                    self.log.warning("document postback %s failed: %s", target, exc)
+                continue
+            if not data:
+                continue
+            if not name:
+                name = f"{tender_no or 'tender'}_{target.rsplit('$', 1)[-1]}.pdf"
+            out.append(Attachment(url=f"{self.base_url}#{target}",
+                                  filename=name, data=data))
+        return out
+
+    def _parse_table(self, table, dept: dict, page_url: str, state: dict | None = None):
         rows = table.find_all("tr")
         if not rows:
             return
         header_cells = [clean(c.get_text()) for c in rows[0].find_all(("th", "td"))]
-        mapping = {i: f for i, h in enumerate(header_cells)
-                   if (f := _map_header(h))}
+        mapping = {}
+        for i, h in enumerate(header_cells):
+            field = GRID_COLUMN_OVERRIDES.get(clean(h).lower()) or _map_header(h)
+            if field:
+                mapping[i] = field
         if not mapping:
             raise RuntimeError("Results table header not recognised - see probe output")
 
@@ -301,6 +386,10 @@ class MohKuwaitAdapter(BaseAdapter):
                     ))
                 elif detail is None and "javascript:" not in a["href"].lower():
                     detail = href
+            # The MOH grid exposes its PDFs only through postbacks; fetch them
+            # now, while this results page's state is still the live one.
+            attachments.extend(
+                self._row_documents(tr, state or {}, rec.get("tender_number") or ""))
 
             value, currency = parse_amount(rec.get("estimated_value"))
             fee, _ = parse_amount(rec.get("tender_fee"))

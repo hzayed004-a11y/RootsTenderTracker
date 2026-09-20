@@ -130,11 +130,57 @@ _PACK_SPLIT = re.compile(r"^(\d[\d.,]*)\s*(.*)$")
 
 
 def _pdf_lines(path: str | Path) -> list[str]:
-    res = subprocess.run(
-        ["pdftotext", "-layout", str(path), "-"],
-        capture_output=True, text=True, check=True,
-    )
+    """Layout-preserving text for the price-list parser.
+
+    poppler's pdftotext -layout is the reference implementation: the row
+    regexes below depend on the column gaps it emits. Where poppler is not
+    installed (a plain `pip install` on macOS or Windows), fall back to
+    pdfplumber's layout mode, which reproduces the same column spacing
+    closely enough for those regexes.
+    """
+    try:
+        res = subprocess.run(
+            ["pdftotext", "-layout", str(path), "-"],
+            capture_output=True, text=True, check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return _pdf_lines_pdfplumber(path)
     return [l.rstrip() for l in res.stdout.split("\n") if l.strip()]
+
+
+# pdftotext -layout lays a page out on a fixed character grid; the row
+# regexes above read the wide gaps it leaves between columns. pdfplumber's
+# own layout mode collapses those gaps, so rebuild the grid from word
+# coordinates instead. 200 columns matches poppler's default density for
+# an A4 page closely enough for the gaps to survive.
+_LAYOUT_COLS = 200
+
+
+def _pdf_lines_pdfplumber(path: str | Path) -> list[str]:
+    import pdfplumber
+    out: list[str] = []
+    with pdfplumber.open(str(path)) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
+            if not words:
+                continue
+            char_w = (page.width or 595) / _LAYOUT_COLS
+            lines: dict[int, list] = {}
+            for w in words:
+                # Round the baseline so words sharing a row group together.
+                key = int(round(float(w["top"]) / 3.0))
+                lines.setdefault(key, []).append(w)
+            for key in sorted(lines):
+                row = sorted(lines[key], key=lambda w: float(w["x0"]))
+                buf = ""
+                for w in row:
+                    col = int(float(w["x0"]) / char_w)
+                    if col < len(buf):
+                        col = len(buf) + 1      # never overwrite a placed word
+                    buf += " " * (col - len(buf)) + w["text"]
+                if buf.strip():
+                    out.append(buf.rstrip())
+    return out
 
 
 def parse_price_list(path: str | Path, source: str) -> tuple[list[dict], list[str]]:

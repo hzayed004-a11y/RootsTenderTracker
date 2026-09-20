@@ -148,8 +148,18 @@ class Screener:
         # line items, classified individually so a single oncology product
         # inside a mixed basket is not lost
         items = []
+        # The portal regenerates its PDFs on every request (the footer carries
+        # a print timestamp), so the same document fetched from two links has
+        # two different hashes. De-duplicate on the item itself instead.
+        seen_items: set[tuple] = set()
         for pd in parsed_docs:
             for item in docs.extract_items(pd):
+                key = (clean(item.get("product_name")).lower(),
+                       clean(item.get("unit")).lower(),
+                       item.get("quantity"))
+                if key in seen_items:
+                    continue
+                seen_items.add(key)
                 itext = " ".join(str(v) for v in item.values() if v)
                 iv = classify(itext, config=self.config)
                 item["is_oncology"] = int(iv.is_oncology)
@@ -221,18 +231,28 @@ class Screener:
         max_docs = int(self.config.get("max_documents_per_tender", 12))
         max_bytes = int(self.config.get("max_document_bytes", 80_000_000))
         texts, parsed_all = [], []
+        seen_digests: set[str] = set()
 
         for att in scraped.attachments[:max_docs]:
             try:
-                resp = self.adapter.fetch(att.url)
-                resp.raise_for_status()
-                data = resp.content
+                if att.data is not None:
+                    # Fetched by the adapter during listing (postback download).
+                    data = att.data
+                else:
+                    resp = self.adapter.fetch(att.url)
+                    resp.raise_for_status()
+                    data = resp.content
                 if len(data) > max_bytes:
                     ctx.error("document", att.url,
                               f"skipped, {len(data)} bytes exceeds limit")
                     continue
                 name = att.filename or urlparse(att.url).path.split("/")[-1] or "file"
                 digest = docs.sha256(data)
+                if digest in seen_digests:
+                    # The same PDF is often reachable from several links on a
+                    # row; parsing it twice would duplicate every line item.
+                    continue
+                seen_digests.add(digest)
                 local = self.doc_dir / f"{digest[:16]}_{name[:60]}"
                 if not local.exists():
                     local.write_bytes(data)

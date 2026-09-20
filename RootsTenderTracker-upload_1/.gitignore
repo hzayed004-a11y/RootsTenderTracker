@@ -1,0 +1,8 @@
+# local runtime state - the container keeps these on its /data volume
+.venv/
+__pycache__/
+*.pyc
+data/
+documents/
+exports/
+logs/

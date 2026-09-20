@@ -43,12 +43,13 @@ sources:
     # "json" = the page calls an API; probe will tell you which
     mode: html
 
-    # --- CALIBRATE: run `python run.py probe` and fill these in ---
-    department_field: null          # form field name for the dropdown
-    title_field: null               # form field name for the tender-title box
+    # --- CALIBRATED 2026-09-20 against the live portal ---
+    # ASP.NET WebForms page; the search is a postback carrying __VIEWSTATE.
+    department_field: dropDepartment
+    title_field: txtTenderTitle
     departments:
       - label: Medical Store
-        value: REPLACE_ME           # the <option value="..."> from probe
+        value: "0121"               # Biomedical Engineering=0122, Purchase=0123
 
     # Searched one at a time in the tender-title box. Each is a disease-area
     # prefix; a cycle runs every code against every department above.
@@ -61,9 +62,10 @@ sources:
       - {code: "SP"}
       - {code: "NU"}
 
-    table_selector: null            # e.g. "#tblTenders"; null = auto-detect
-    extra_form_fields: {}           # e.g. search button name/value
-    detail_url_template: null       # e.g. ".../ViewTender?id={tenderId}"
+    table_selector: "#gv1"          # the results GridView
+    extra_form_fields:
+      btnGo: Go                     # the Search button must be in the postback
+    detail_url_template: null       # no detail page; the PDF carries the items
 
     login:
       required: false               # probe reports whether a password field exists

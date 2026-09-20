@@ -98,7 +98,12 @@ CANCER_INDICATIONS = {
     "head and neck cancer", "thyroid carcinoma", "glioblastoma", "glioma",
     "neuroblastoma", "osteosarcoma", "ewing sarcoma", "gist",
     "multiple myeloma", "hodgkin", "non-hodgkin", "dlbcl", "follicular lymphoma",
-    "mantle cell", "cll", "aml", "all", "cml", "mds", "myelofibrosis",
+    # "all" (acute lymphoblastic leukaemia) is deliberately absent: folded to
+    # lower case it is the ordinary English word, and MOH tender boilerplate
+    # ("ALL TENDER DOCUMENTS AVAILABLE ON ...") then marks every tender as
+    # oncology. The spelled-out form below carries the same signal safely.
+    "mantle cell", "cll", "aml", "cml", "mds", "myelofibrosis",
+    "acute lymphoblastic leukaemia", "acute lymphoblastic leukemia",
     "polycythaemia vera", "polycythemia vera", "essential thrombocythaemia",
     "mesothelioma", "cholangiocarcinoma", "nasopharyngeal carcinoma",
 }
@@ -300,6 +305,7 @@ import re as _re
 from .normalize import fold as _fold
 
 SHORT_TERM_LEN = 5
+SHORT_ARABIC_LEN = 3
 _ARABIC_RX = _re.compile(r"[\u0600-\u06FF]")
 
 
@@ -312,15 +318,27 @@ def build_index(terms):
     # never match, and Arabic has none of the short-abbreviation collisions
     # ("all", "api") that make boundaries necessary in English.
     arabic = {t for t in folded if _ARABIC_RX.search(t)}
+    # ...with one exception: a two- or three-letter Arabic word (سل = TB,
+    # ورم = tumour) is a substring of dozens of unrelated words, so those do
+    # need boundaries. Allow the attached article, which is the reason the
+    # rest of the Arabic terms are matched loosely in the first place.
+    short_arabic = {t for t in arabic if len(t) <= SHORT_ARABIC_LEN}
     short = {t for t in folded - arabic if len(t) <= SHORT_TERM_LEN}
-    long_ = folded - short
+    long_ = folded - short - short_arabic
+    parts = [_re.escape(t) for t in sorted(short, key=len, reverse=True)]
     rx = None
-    if short:
-        rx = _re.compile(
-            r"(?<![\w\u0600-\u06FF])(?:"
-            + "|".join(_re.escape(t) for t in sorted(short, key=len, reverse=True))
-            + r")(?![\w\u0600-\u06FF])"
+    patterns = []
+    if parts:
+        patterns.append(
+            r"(?<![\w\u0600-\u06FF])(?:" + "|".join(parts) + r")(?![\w\u0600-\u06FF])"
         )
+    if short_arabic:
+        ar = "|".join(_re.escape(t) for t in sorted(short_arabic, key=len, reverse=True))
+        patterns.append(
+            r"(?<![\w\u0600-\u06FF])(?:ال)?(?:" + ar + r")(?![\w\u0600-\u06FF])"
+        )
+    if patterns:
+        rx = _re.compile("|".join(patterns))
     return long_, rx
 
 

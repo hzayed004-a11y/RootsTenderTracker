@@ -93,10 +93,21 @@ class Matcher:
         url = scraped.get("tender_page_url") or scraped.get("source_url")
         if url:
             nurl = normalise_url(url)
+            scraped_num = normalise_number(num)
             for r in self.db.query(
-                "SELECT id, tender_page_url, source_url FROM tenders WHERE source = ?",
+                "SELECT id, tender_number, tender_page_url, source_url "
+                "FROM tenders WHERE source = ?",
                 (self.source,),
             ):
+                # The number is the stronger identifier: two rows carrying
+                # different numbers are different tenders however their URLs
+                # compare. Portals that list every tender on one search page
+                # (MOH Kuwait) share a single source_url across all of them,
+                # so without this guard the whole result set collapses into
+                # one record.
+                other_num = normalise_number(r["tender_number"])
+                if scraped_num and other_num and scraped_num != other_num:
+                    continue
                 if nurl and normalise_url(r["tender_page_url"]) == nurl:
                     return "match", r["id"], "identical detail URL"
                 if nurl and normalise_url(r["source_url"]) == nurl:

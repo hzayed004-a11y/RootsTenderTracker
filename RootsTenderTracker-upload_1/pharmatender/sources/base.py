@@ -24,6 +24,11 @@ class Attachment:
     url: str
     filename: str = ""
     content_type: str = ""
+    # Some portals hand documents out only through a stateful postback, which
+    # cannot be replayed later from a bare URL. Those adapters fetch the bytes
+    # while the page state is still valid and park them here; the pipeline
+    # uses them instead of issuing its own GET.
+    data: bytes | None = None
 
 
 @dataclass
