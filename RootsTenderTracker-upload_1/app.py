@@ -254,7 +254,7 @@ def esc(v) -> str:
 
 @app.middleware("http")
 async def gate(request: Request, call_next):
-    if APP_TOKEN:
+    if APP_TOKEN and request.url.path != "/healthz":
         token = (request.query_params.get("token")
                  or request.cookies.get("app_token"))
         if token != APP_TOKEN:
