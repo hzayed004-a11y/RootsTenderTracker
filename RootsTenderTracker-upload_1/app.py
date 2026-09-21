@@ -20,15 +20,16 @@ import threading
 import traceback
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote_plus, urlencode
 
 import yaml
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from pharmatender.normalize import NA as NA_TEXT
 from pharmatender import reference as ref
 from pharmatender import reporting
+from pharmatender import sync
 from pharmatender import tracker as trk
 from pharmatender.db import Database
 from pharmatender.forecasting import run_forecasting
@@ -237,7 +238,8 @@ table td{vertical-align:top}
 NAV = [("/", "Dashboard"), ("/tracker", "Tracker"), ("/reports", "Reports"),
        ("/tenders", "Tenders"), ("/review", "Review queue"),
        ("/forecast", "Forecast"), ("/lookup", "Molecule lookup"),
-       ("/history", "History"), ("/calibrate", "Portal setup")]
+       ("/history", "History"), ("/sync", "Publish cycle"),
+       ("/calibrate", "Portal setup")]
 
 
 def page(title: str, body: str, active: str = "") -> HTMLResponse:
@@ -1411,6 +1413,70 @@ in the units the tender used - read it per unit, not as one figure.</p>
 {fblocks or '<div class="panel"><p class="sub">No cycle forecast yet: a molecule needs at least three past tenders before the engine will project the next one.</p></div>'}"""
     return page("Forecast", body, "/forecast")
 
+
+
+@app.get("/sync", response_class=HTMLResponse)
+def sync_page(imported: str = "", error: str = ""):
+    """Publish a cycle run on the company network to this instance.
+
+    The portal blocks datacentre addresses, so a hosted instance can never
+    screen for itself; it is given the result instead.
+    """
+    db = get_db()
+    counts = {t: db.query(f"SELECT COUNT(*) c FROM {t}")[0]["c"]
+              for t in ("tenders", "tender_items", "documents")}
+    last = db.query("SELECT started_at, status FROM screening_runs "
+                    "ORDER BY id DESC LIMIT 1")
+    last_line = (f"Last cycle here: {last[0]['started_at']} UTC "
+                 f"({last[0]['status']})" if last else
+                 "No screening cycle has been published here yet.")
+
+    note = ""
+    if imported:
+        note = f'<div class="note ok">{esc(imported)}</div>'
+    elif error:
+        note = f'<div class="note bad">{esc(error)}</div>'
+
+    body = f"""{note}<div class="panel"><h2>Publish a screening cycle</h2>
+<p class="sub">The MOH portal refuses connections from datacentre addresses,
+so cycles run on a machine inside the company network and the result is
+published here. On that machine, after a cycle:</p>
+<pre class="log">python run.py snapshot</pre>
+<p class="sub">then upload the <code>screening_snapshot.json</code> it writes.
+The screening tables are replaced by the snapshot; the MOH price lists and
+the Roots sheet loaded on this instance are left alone.</p>
+<form method="post" action="/sync/import" enctype="multipart/form-data">
+<label>Snapshot file</label>
+<input type="file" name="snapshot" accept="application/json,.json" required>
+<button class="btn" style="margin-top:12px">Publish</button></form></div>
+<div class="panel"><h2>On this instance now</h2>
+<p class="sub">{last_line}</p><table>
+<tr><th>Table</th><th>Rows</th></tr>
+<tr><td>Tenders</td><td>{counts['tenders']}</td></tr>
+<tr><td>Line items</td><td>{counts['tender_items']}</td></tr>
+<tr><td>Documents</td><td>{counts['documents']}</td></tr>
+</table></div>"""
+    return page("Publish cycle", body, "/sync")
+
+
+@app.post("/sync/import")
+async def sync_import(snapshot: UploadFile = File(...)):
+    db = get_db()
+    try:
+        payload = json.loads((await snapshot.read()).decode("utf-8"))
+        result = sync.import_snapshot(db, payload)
+    except Exception as exc:
+        log.error("snapshot import failed: %s", exc)
+        return RedirectResponse(
+            f"/sync?error={quote_plus(f'Import failed: {exc}')}",
+            status_code=303)
+
+    n = result["imported"]
+    msg = (f"Published {n.get('tenders', 0)} tender(s) and "
+           f"{n.get('tender_items', 0)} line item(s) "
+           f"from the cycle exported {result.get('exported_at') or 'locally'}.")
+    log.info("snapshot imported: %s", n)
+    return RedirectResponse(f"/sync?imported={quote_plus(msg)}", status_code=303)
 
 
 STATIC_FILES = {"roots-logo.png": "image/png"}

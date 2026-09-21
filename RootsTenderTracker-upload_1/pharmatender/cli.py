@@ -200,6 +200,23 @@ def cmd_load_reference(args, config):
           f"{len(index.bridge)} brand/INN aliases")
 
 
+def cmd_snapshot(args, config):
+    """Write the screening tables to JSON for upload to the hosted app.
+
+    The portal blocks datacentre addresses, so the instance the team reads
+    cannot screen for itself; it is handed the result of a cycle run here.
+    """
+    from . import sync
+    db = Database(config["database"])
+    snap = sync.write_snapshot(db, args.out)
+    print(f"\n  wrote {args.out}")
+    for table, n in snap["counts"].items():
+        if n:
+            print(f"  {table:<18} {n}")
+    print("\n  Upload it on the hosted app under 'Publish cycle'.\n")
+    return 0
+
+
 def cmd_lookup(args, config):
     """Ad-hoc molecule lookup against the reference data."""
     db = Database(config["database"])
@@ -367,6 +384,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="ingest the MOH price lists + Roots sheet")
     s.add_argument("--drug"); s.add_argument("--food"); s.add_argument("--roots")
     s.set_defaults(func=cmd_load_reference)
+
+    s = sub.add_parser("snapshot",
+                       help="write this cycle's result for the hosted instance")
+    s.add_argument("-o", "--out", default="screening_snapshot.json")
+    s.set_defaults(func=cmd_snapshot)
 
     s = sub.add_parser("lookup", help="molecule lookup against reference data")
     s.add_argument("text", nargs="+")
