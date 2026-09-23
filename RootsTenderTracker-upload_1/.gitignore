@@ -7,3 +7,4 @@ documents/
 exports/
 logs/
 screening_snapshot.json
+.sync_env

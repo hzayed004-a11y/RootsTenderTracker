@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.roots.tendercycle</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/hamzaibrahim/Documents/Github/RootsTenderTracker/RootsTenderTracker-upload_1/tools/daily_cycle.sh</string>
+    </array>
+
+    <!-- 12:00 every day, in the machine's local time, which is Kuwait (+03).
+         If the Mac is asleep at noon, launchd runs the job once it wakes. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>12</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/hamzaibrahim/Documents/Github/RootsTenderTracker/RootsTenderTracker-upload_1</string>
+
+    <!-- The script writes its own log; this catches anything that fails
+         before it gets that far. -->
+    <key>StandardOutPath</key>
+    <string>/Users/hamzaibrahim/Documents/Github/RootsTenderTracker/RootsTenderTracker-upload_1/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/hamzaibrahim/Documents/Github/RootsTenderTracker/RootsTenderTracker-upload_1/logs/launchd.err.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin</string>
+    </dict>
+</dict>
+</plist>
